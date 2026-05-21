@@ -20,6 +20,24 @@ sync
 
 Default login: `root` / `nixos`
 
+The image is only 6 GB. After first boot, resize the partition to use the full SD card:
+
+```bash
+nix-shell -p parted
+parted /dev/mmcblk0
+(parted) resizepart 2 100%
+(parted) quit
+reboot
+```
+
+After reboot, extend LVM and btrfs:
+
+```bash
+pvresize /dev/mmcblk0p2
+lvextend -l +100%FREE /dev/root_vg/root
+btrfs filesystem resize max /
+```
+
 ## Usage
 
 Add to your `flake.nix` inputs:
@@ -105,6 +123,27 @@ Default is **vendor** U-Boot from Radxa (`u-boot-aw2501` package).
 > **Note:** `hardware.cubie-a5e.uboot = "mainline"` is available but **does not boot** currently.
 > Mainline U-Boot builds with WIP TF-A from [jernejsk/arm-trusted-firmware](https://github.com/jernejsk/arm-trusted-firmware) (branch `a523`),
 > but fails to start. Root cause is under investigation.
+
+## Hardware support status
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| WiFi 6 (AIC8800D80 SDIO) | ✅ Working | 2.4 GHz only, out-of-tree driver |
+| Bluetooth 5.4 (AIC8800D80 UART) | ✅ Working | HCI over UART1, out-of-tree driver, hciattach service |
+| Ethernet (RJ45 x2) | ✅ Working | Both GbE ports |
+| SD card | ✅ Working | Boot + rootfs |
+| USB 2.0 | ✅ Working | |
+| USB 3.0 | ❌ Not working | Missing combo PHY + xHCI DT nodes in mainline, port falls back to USB 2.0 speed |
+| M.2 slot (PCIe) | ❌ Not working | Shares lane with USB 3.0 via combo PHY, not yet in mainline DT |
+| HDMI | ❌ Not working | Requires display engine drivers not yet in mainline |
+| MIPI DSI | ❌ Not working | Missing mainline support/drivers |
+| MIPI CSI | ❌ Not working | Missing mainline support/drivers |
+| GPU (Mali G57 MC1) | ❌ Not working | Panfrost support WIP, no display output in mainline yet |
+| Video HW decode/encode | ❌ Not working | Cedrus driver does not support sun55i/A527 yet |
+| NPU | ➖ N/A | Only available on T527 (industrial variant), A527 does not have NPU |
+| GPIO | 🔘 Not tested | Likely works |
+| eMMC | 🔘 Not tested | Likely works |
+
 
 ## Known issues
 
