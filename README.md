@@ -9,6 +9,17 @@ NixOS modules for the Radxa Cubie A5E board:
 - **Watchdog reboot workaround** for WIP TF-A without PSCI SYSTEM_RESET
 - **Systemd hardware watchdog** configuration
 
+## Quick start (pre-built image)
+
+Download the latest `main.raw.zst` from [Releases](https://github.com/patryk4815/nixos-cubie-a5e/releases) and flash to SD card:
+
+```bash
+zstdcat main.raw.zst | sudo dd of=/dev/sdX bs=4M status=progress
+sync
+```
+
+Default login: `root` / `nixos`
+
 ## Usage
 
 Add to your `flake.nix` inputs:
