@@ -88,6 +88,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [{
+      assertion = lib.versionAtLeast config.boot.kernelPackages.kernel.version "7.0";
+      message = "hardware.aic8800 requires kernel >= 7.0 (patch is for kernel 7.0 API changes)";
+    }];
+
     boot.extraModulePackages = [ aic8800-sdio-driver ];
 
     boot.kernelModules = [

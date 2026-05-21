@@ -1,0 +1,29 @@
+name: Build SD card image
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Build disko image script
+        run: nix build '.#nixosConfigurations.cubie-a5e.config.system.build.diskoImagesScript' -L
+
+      - name: Generate disk image
+        run: ./result
+
+      - name: Compress image
+        run: zstd -T0 main.raw -o main.raw.zst
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: main.raw.zst
