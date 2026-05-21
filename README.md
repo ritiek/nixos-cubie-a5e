@@ -25,6 +25,7 @@ The image is only 6 GB. After first boot, resize the partition to use the full S
 ```bash
 nix-shell -p parted
 parted /dev/mmcblk0
+(parted) p
 (parted) resizepart 2 100%
 (parted) quit
 reboot
