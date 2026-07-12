@@ -16,6 +16,22 @@ in
   config = lib.mkIf cfg.enable {
     hardware.aic8800.enable = true;
 
+    # A523/A527's actual THS0/THS1 temperature-sensor hardware blocks are not
+    # yet supported by nixpkgs' shipped sun8i_thermal driver, which causes
+    # /sys/class/thermal readings to get stuck at a static boot-time value
+    # instead of updating. Backported from the still-unmerged (as of
+    # 2026-07-11) upstream series:
+    # https://patchew.org/linux/20260704171411.1413349-1-iuncuim@gmail.com/
+    # "[PATCH v5 0/5] Allwinner: A523: add support for A523 THS0/1 controllers"
+    # Can be dropped once upstream merges and nixpkgs bumps the kernel past it.
+    boot.kernelPatches = [
+      { name = "sun55i-a523-thermal-1-dt-bindings"; patch = ./patches/0001-dt-bindings-thermal-sun8i-add-a523-ths.patch; }
+      { name = "sun55i-a523-thermal-2-reset-control-shared"; patch = ./patches/0002-thermal-sun8i-reset-control-shared-deasserted.patch; }
+      { name = "sun55i-a523-thermal-3-two-nvmem-cells"; patch = ./patches/0003-thermal-sun8i-calibration-two-nvmem-cells.patch; }
+      { name = "sun55i-a523-thermal-4-ths0-ths1-driver"; patch = ./patches/0004-thermal-sun8i-add-a523-ths0-ths1-support.patch; }
+      { name = "sun55i-a523-thermal-5-dts-sensors-zones"; patch = ./patches/0005-arm64-dts-allwinner-sun55i-add-thermal-sensors.patch; }
+    ];
+
     # Hardware watchdog for reliable reboot/shutdown detection
     systemd.settings.Manager = {
       RuntimeWatchdogSec = "15s";
