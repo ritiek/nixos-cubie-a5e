@@ -51,6 +51,39 @@ in
           PCI_MSI = lib.kernel.yes;
         };
       }
+      # CPU DVFS (cpufreq) support - from iuncuim, the same author as the
+      # thermal series above.
+      #
+      # Why this is needed: the A523/A527 CPU PLLs do not live in the main CCU
+      # at 0x02001000 - they sit in a separate, undocumented "CPC" block at
+      # 0x08817000. Mainline's ccu-sun55i-a523 driver therefore models *no* CPU
+      # clock at all, the DT carries no operating-points-v2, cpufreq-dt never
+      # probes, and the cores are stuck at whatever the boot firmware left them
+      # at. Measured on real hardware: 1032 MHz on both clusters, against a
+      # rated 1.8 GHz (big) / 1.4 GHz (little) - i.e. ~43% of the CPU is simply
+      # unavailable.
+      #
+      # It is also a safety fix, not just a performance one. Without a cpufreq
+      # cooling device the passive thermal trips at 70 C and 90 C (added by the
+      # thermal patches above) have nothing bound to them, so the only live
+      # protection is the 110 C critical shutdown. With cpufreq present the
+      # passive trips finally throttle.
+      #
+      # No Kconfig additions are needed: the new object hangs off the existing
+      # CONFIG_SUN55I_A523_CCU symbol, and cpufreq-dt-platdev.c auto-creates
+      # the platform device once cpu0 has an operating-points-v2 property
+      # (allwinner,sun55i-* is absent from its blocklist).
+      #
+      # Two deliberate deviations from iuncuim's original:
+      #   1. The 1992 MHz OPP is dropped. It requires 1220000 uV, but the
+      #      AXP323 DCDC1 rail that feeds the big cluster is declared
+      #      regulator-max-microvolt = <1160000> in the board DTS, and 1992 MHz
+      #      is only valid on speed bin vf0400 anyway.
+      #   2. capacity-dmips-mhz is 922 (little) / 1024 (big), taken from the
+      #      vendor BSP, instead of a uniform 1024 which hides the asymmetry
+      #      between the two clusters from the scheduler.
+      { name = "a523-cpu-ccu-driver"; patch = ./patches/kernel/a523-cpu-ccu-driver.patch; }
+      { name = "a523-cpu-opp-dts"; patch = ./patches/kernel/a523-cpu-opp-dts.patch; }
     ];
 
     hardware.deviceTree.overlays =
