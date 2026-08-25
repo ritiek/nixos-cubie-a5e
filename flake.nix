@@ -79,10 +79,26 @@
         system = "aarch64-linux";
         modules = [
           self.nixosModules.default
-          ({ pkgs, ... }: {
+          ({ pkgs, lib, ... }: {
             hardware.cubie-a5e.enable = true;
             hardware.cubie-a5e.uboot = uboot;
             boot.kernelPackages = pkgs.linuxPackages_7_1;
+
+            # Serial console. Without console= params the kernel says nothing
+            # over UART, so on this headless board any outcome - successful
+            # boot with broken networking, initrd failure, kernel panic -
+            # is indistinguishable from a dead board. Values verified on this
+            # hardware: UART0 is an 8250-compatible controller at
+            # 0x02500000; earlycon covers the pre-driver window.
+            boot.kernelParams = [
+              "earlycon=uart8250,mmio32,0x02500000"
+              "console=ttyS0,115200n8"
+            ];
+            boot.consoleLogLevel = 7;
+
+            # Explicit DHCP on all interfaces instead of relying on module
+            # defaults, so first-boot SSH always has a way to get an address.
+            networking.useDHCP = lib.mkDefault true;
 
             users.users.root.initialPassword = "nixos";
             services.openssh = {
