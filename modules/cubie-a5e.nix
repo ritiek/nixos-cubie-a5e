@@ -84,6 +84,30 @@ in
       #      between the two clusters from the scheduler.
       { name = "a523-cpu-ccu-driver"; patch = ./patches/kernel/a523-cpu-ccu-driver.patch; }
       { name = "a523-cpu-opp-dts"; patch = ./patches/kernel/a523-cpu-opp-dts.patch; }
+
+      # The CCU driver above reprograms the CPU PLL in place while the cluster
+      # is still executing from it, with no reparent to a stable clock across
+      # the relock. Every other sunxi-ng CPU clock driver parks the cluster on
+      # the 24 MHz oscillator for the duration (see ccu-sun50i-h6.c), so do the
+      # same here. Note this turned out NOT to be the cause of the boot hang
+      # described below -- a per-OPP bisect showed the fatal step is only a
+      # 6-step change of the N multiplier, smaller than several steps that
+      # survived -- but the driver is wrong without it either way.
+      { name = "a523-cpu-mux-bypass"; patch = ./patches/kernel/a523-cpu-mux-bypass.patch; }
+
+      # THIS is what actually made DVFS hang the board. The AXP323's DCDC1 and
+      # DCDC2 are wired together on this board as a two-phase supply for
+      # vdd-cpub (the four "big" cores) -- mainline's own board DTS says as
+      # much. But the kernel only ever *reads* the poly-phase bit, never sets
+      # it, so whether the phases are ganged is inherited from the bootloader.
+      # With it clear, DCDC1 alone feeds the whole cluster: voltage scaling
+      # still works, but the rail browns out as soon as the cluster draws more
+      # current than one phase can deliver, and the SoC dies with no oops and
+      # no console output. Bisected on real hardware with the userspace
+      # governor: 408/672/840/1008 MHz (900 mV) and 1200 MHz (920 mV) are all
+      # stable, 1344 MHz (960 mV) hangs instantly. Force the two phases
+      # together so this no longer depends on which U-Boot happened to run.
+      { name = "a523-axp323-force-polyphase"; patch = ./patches/kernel/a523-axp323-force-polyphase.patch; }
     ];
 
     hardware.deviceTree.overlays =
