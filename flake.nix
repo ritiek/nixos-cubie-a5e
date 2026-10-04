@@ -3,52 +3,22 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    disko.url = "github:nix-community/disko";
   };
 
-  outputs = { self, nixpkgs, disko, ... }: let
+  outputs = { self, nixpkgs, ... }: let
     pkgs = nixpkgs.legacyPackages.aarch64-linux;
     nixpkgs-unstable = builtins.getFlake "github:NixOS/nixpkgs/104240a772428cc2e20d8fd86c9ddbb886bbaff2?narHash=sha256-D740uKsMbgsfK2oaDenJLLPIZfq7W0/g4KN/Fls8eKs%3D"; # 2026-08-03
-    nixpkgs_25_11 = builtins.getFlake "github:NixOS/nixpkgs/b6018f87da91d19d0ab4cf979885689b469cdd41?narHash=sha256-twXPFqFsrrY5r28Zh7Homgcp2gUMBgQ6WDS98Q/3xFI%3D"; # 2026-06-30
-    # Used only for the disko image-builder VM's host-side tooling (NOT the
-    # target kernel). Deliberately pinned to systemd 257.10 (nixos-25.05
-    # branch), NOT nixpkgs_25_11's systemd 258.7, because 258.7 hits an
-    # upstream O(n^2) udev event-dependency-resolution performance
-    # regression (systemd/systemd#39583, #39817; fix in PR #40364, not
-    # cleanly backportable as of 2026-02) that makes `udevadm settle
-    # --timeout=120` inside the build VM reliably time out with
-    # "Failed to issue io.systemd.service.Ping() varlink call: Timer
-    # expired", panicking the VM's init. This host (alcove) has no
-    # /dev/kvm, so QEMU falls back to TCG software emulation, which is
-    # slow enough to push the O(n^2) blowup past the hardcoded timeout
-    # every single time (reproduced deterministically twice). systemd
-    # 257.10 predates the regression.
-    nixpkgs_25_05 = builtins.getFlake "github:NixOS/nixpkgs/ac62194c3917d5f474c1a844b6fd6da2db95077d?narHash=sha256-16KkgfdYqjaeRGBaYsNrhPRRENs0qzkQVUooNHtoy2w%3D"; # nixos-25.05, systemd 257.10
   in {
     nixosModules = {
       aic8800 = ./modules/aic8800-sdio.nix;
       cubie-a5e = ./modules/cubie-a5e.nix;
-
-      disko = { ... }: {
-        imports = [
-          disko.nixosModules.default
-          ./modules/disko.nix
-          ({ ... }: {
-            disko = {
-              imageBuilder = {
-                pkgs = nixpkgs_25_05.legacyPackages.aarch64-linux;
-                kernelPackages = nixpkgs_25_05.legacyPackages.aarch64-linux.linuxPackages_latest;
-              };
-            };
-          })
-        ];
-      };
+      sd-image = ./modules/sd-image.nix;
 
       default = { ... }: {
         imports = [
           self.nixosModules.aic8800
           self.nixosModules.cubie-a5e
-          self.nixosModules.disko
+          self.nixosModules.sd-image
         ];
       };
     };
@@ -75,25 +45,20 @@
     };
 
     nixosConfigurations = let
-      mkCubieA5E = { uboot ? "none" }: nixpkgs.lib.nixosSystem {
+      mkCubieA5E = { uboot ? "none", combophy ? "pcie" }: nixpkgs.lib.nixosSystem {
         system = "aarch64-linux";
         modules = [
           self.nixosModules.default
           ({ pkgs, lib, ... }: {
             hardware.cubie-a5e.enable = true;
             hardware.cubie-a5e.uboot = uboot;
+            hardware.cubie-a5e.combophy = combophy;
             boot.kernelPackages = pkgs.linuxPackages_7_1;
 
-            # Serial console. Without console= params the kernel says nothing
-            # over UART, so on this headless board any outcome - successful
-            # boot with broken networking, initrd failure, kernel panic -
-            # is indistinguishable from a dead board. Values verified on this
-            # hardware: UART0 is an 8250-compatible controller at
-            # 0x02500000; earlycon covers the pre-driver window.
-            boot.kernelParams = [
-              "earlycon=uart8250,mmio32,0x02500000"
-              "console=ttyS0,115200n8"
-            ];
+            # Serial console. sd-image-aarch64.nix already sets
+            # console=ttyS0,115200n8; earlycon (UART0, 8250 at 0x02500000)
+            # covers the window before the real driver probes.
+            boot.kernelParams = [ "earlycon=uart8250,mmio32,0x02500000" ];
             boot.consoleLogLevel = 7;
 
             # Explicit DHCP on all interfaces instead of relying on module
@@ -116,6 +81,7 @@
     in {
       cubie-a5e-sd-vendor = mkCubieA5E { uboot = "vendor"; };
       cubie-a5e-sd-mainline-1gb = mkCubieA5E { uboot = "mainline-1gb"; };
+      cubie-a5e-sd-mainline-1gb-usb3 = mkCubieA5E { uboot = "mainline-1gb"; combophy = "usb3"; };
       cubie-a5e-sd-mainline-2gb = mkCubieA5E { uboot = "mainline-2gb+"; };
       cubie-a5e-spi = mkCubieA5E { uboot = "none"; };
     };

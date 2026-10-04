@@ -11,6 +11,14 @@ A523/A527. Backported from [Armbian](https://github.com/armbian/build) (Marvin W
 CLK_USB3_REF clock fix, Innosilicon combo PHY driver, Allwinner sunxi PCIe RC driver and
 SoC/board DT nodes. Enabled automatically with `hardware.cubie-a5e.enable = true`.
 
+**USB 3.0 (SuperSpeed port)** - mainline has no DWC3/xHCI node or USB3 clocks for A523/A527.
+Added `a523-usb3-clks.patch` (CCU `usb2`, `usb3-suspend`, exported `mbus-usb3`),
+`a523-dwc3-dts.patch` (`snps,dwc3` at `0x04d00000`; the overlay adds the third USB2 PHY `pmu2` it is wired to,
+SuperSpeed on the Armbian combo PHY) and `a523-combophy-bootloader-fix.patch` (the combo PHY
+driver skipped re-init when U-Boot had already brought the PHY up in PCIe mode). The
+`usb3` overlay drives the GMA340 mux (PB6 low) to the USB3 lanes. Enable with
+`hardware.cubie-a5e.combophy = "usb3"` (new `cubie-a5e-sd-mainline-1gb-usb3` config).
+
 **CPU thermal sensors (THS0/THS1)** - the mainline `sun8i_thermal` driver does not support
 the A523/A527 sensor hardware, so `/sys/class/thermal` reported a static temperature.
 Backported from the not-yet-merged upstream series by Mikhail Kalashnikov.
@@ -75,14 +83,18 @@ Now set to `LOGERROR` via modprobe; still tunable at runtime through
 ### Changed
 
 - Kernel 7.1 is now the default (7.0 still supported).
-- `/boot` is mounted with `sync`.
+- SD images are now built with nixpkgs' `sd-image-aarch64.nix` instead of disko
+  (`nixosModules.disko` -> `nixosModules.sd-image`; build attribute `diskoImagesScript` ->
+  `sdImage`). No VM is needed, so images build on hosts without KVM/device-mapper. The
+  layout is now MBR with a single ext4 root (`NIXOS_SD`) that auto-expands on first boot,
+  replacing the GPT + LVM + btrfs layout.
 
 ### Known limitations
 
-- **USB 3.0 does not work.** The combo PHY can be switched with
-  `hardware.cubie-a5e.combophy = "usb3"`, but there are no DWC3/xHCI device tree nodes for
-  A523/A527 in mainline - not in Armbian either - so the port enumerates at USB 2.0 speed.
-  PCIe and USB 3.0 are mutually exclusive regardless, as they share one PHY.
+- **USB 3.0 and PCIe are mutually exclusive** (one combo PHY). Select with
+  `hardware.cubie-a5e.combophy`; `usb3` disables the M.2 slot.
+- **USB 3.0 host mode may log `irq 35: nobody cared`** once a device is plugged in; known
+  upstream issue in the DWC3 series, functionality is unaffected.
 - **All NVMe interrupts land on CPU0.** `sunxi_msi_set_affinity()` in the Armbian driver is a
   stub, so there is no IRQ spreading. Throughput on Gen2 x1 is unaffected.
 - HDMI, MIPI DSI/CSI, GPU and hardware video decode remain unsupported in mainline.

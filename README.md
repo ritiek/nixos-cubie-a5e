@@ -86,26 +86,28 @@ Build SD card image (pre-configured example with root/nixos login):
 
 ```bash
 # Vendor U-Boot (default)
-nix build '.#nixosConfigurations.cubie-a5e-sd-vendor.config.system.build.diskoImagesScript' -L
+nix build '.#nixosConfigurations.cubie-a5e-sd-vendor.config.system.build.sdImage' -L
 
 # Mainline U-Boot - 1GB model (LPDDR4)
-nix build '.#nixosConfigurations.cubie-a5e-sd-mainline-1gb.config.system.build.diskoImagesScript' -L
+nix build '.#nixosConfigurations.cubie-a5e-sd-mainline-1gb.config.system.build.sdImage' -L
+
+# Mainline U-Boot - 1GB model, USB 3.0 instead of PCIe/NVMe
+nix build '.#nixosConfigurations.cubie-a5e-sd-mainline-1gb-usb3.config.system.build.sdImage' -L
 
 # Mainline U-Boot - 2GB/4GB model (LPDDR4x)
-nix build '.#nixosConfigurations.cubie-a5e-sd-mainline-2gb.config.system.build.diskoImagesScript' -L
+nix build '.#nixosConfigurations.cubie-a5e-sd-mainline-2gb.config.system.build.sdImage' -L
 ```
 
-Then run the script and flash:
+Then flash:
 
 ```bash
-./result
-sudo dd if=main.raw of=/dev/sdX bs=4M status=progress
+sudo dd if=result/sd-image/*.img of=/dev/sdX bs=4M status=progress
 ```
 
 ### Individual modules
 
 ```nix
-# WiFi/Bluetooth only (without disko or board workarounds)
+# WiFi/Bluetooth only (without SD image or board workarounds)
 cubie-a5e.nixosModules.aic8800
 {
   hardware.aic8800.enable = true;
@@ -117,14 +119,14 @@ cubie-a5e.nixosModules.cubie-a5e
   hardware.cubie-a5e.enable = true;
 }
 
-# Disko only (disk layout + U-Boot)
-cubie-a5e.nixosModules.disko
+# SD image only (disk layout + U-Boot)
+cubie-a5e.nixosModules.sd-image
 ```
 
 ## Disk layout
 
-Booting from **SD card** (`/dev/mmcblk0`), **USB** or **NVMe** is supported. The image uses
-GPT partitioning.
+The image is built with nixpkgs' `sd-image-aarch64.nix` (MBR, no VM needed). Booting from
+**SD card** (`/dev/mmcblk0`), **USB** or **NVMe** is supported.
 
 When U-Boot lives on the disk itself (`hardware.cubie-a5e.uboot` other than `"none"`), the
 first 16 MB are reserved for it:
@@ -133,20 +135,15 @@ first 16 MB are reserved for it:
 |--------|---------|
 | 128 KB (sector 256) | U-Boot boot0 (SPL) |
 | 12 MB (sector 24576) | U-Boot boot_package (U-Boot + ATF) |
-| 16 MB (sector 32768) | First GPT partition |
+| 16 MB (sector 32768) | First partition |
 
-With `uboot = "none"` (the `cubie-a5e-spi` image, U-Boot in SPI NOR) no gap is reserved and
-partitioning starts at the front of the disk.
+With `uboot = "none"` (the `cubie-a5e-spi` image, U-Boot in SPI NOR) the gap is nixpkgs'
+default 8 MB.
 
 Partitions:
 
-- `/boot` - 2 GB ext4 (extlinux boot)
-- `root` - remaining space, LVM physical volume
-
-LVM volume group `root_vg` with single logical volume `root` formatted as **btrfs** with subvolumes:
-
-- `/root` -> mounted at `/`
-- `/nix` -> mounted at `/nix` (noatime)
+- `FIRMWARE` - 30 MB FAT (unused on this board)
+- `NIXOS_SD` - ext4 root with `/boot` (extlinux), auto-expanded to fill the card on first boot
 
 ## U-Boot
 
@@ -248,7 +245,7 @@ reboot
 | SD card | ✅ Working | Boot + rootfs |
 | CPU thermal sensor (THS0/THS1) | ✅ Working | Requires backported patches (see below), not yet in mainline |
 | USB 2.0 | ✅ Working | |
-| USB 3.0 | ❌ Not working | Missing DWC3 (xHCI) DT nodes in mainline, combo PHY shared with PCIe |
+| USB 3.0 | ✅ Working | `hardware.cubie-a5e.combophy = "usb3"` (disables M.2/PCIe, shared combo PHY), requires kernel patches (see below) |
 | M.2 slot (PCIe) | ✅ Working | PCIe Gen2 x1 via combo PHY (default), requires kernel patches (see below) |
 | HDMI | ❌ Not working | Requires display engine drivers not yet in mainline |
 | MIPI DSI | ❌ Not working | Missing mainline support/drivers |
@@ -301,7 +298,20 @@ Default boot order: NVMe → USB → SD card (`mmc0`).
   (`pcie-designware-host.c`) lists this flag; sunxi does not. This bug is present in upstream
   Armbian as of 2026-08.
 
+- **USB 3.0 (DWC3/xHCI)** - mainline has no DWC3 node or USB3 clocks for A523/A527, and Armbian
+  only ships the combo PHY in PCIe mode. `modules/patches/kernel/a523-usb3-clks.patch` adds the
+  CCU `usb2`, `usb3-suspend` and exported `mbus-usb3` clocks (modelled on the unmerged
+  ["arm64: allwinner: a523: add USB3.0 support"](https://lwn.net/ml/all/20250816084700.569524-1-iuncuim@gmail.com/)
+  series by Mikhail Kalashnikov), `a523-dwc3-dts.patch` adds a bare `snps,dwc3`
+  node at `0x04d00000` (UTMI on the third USB2 PHY `pmu2` added by the overlay, SuperSpeed on the Armbian combo PHY), and
+  `a523-combophy-bootloader-fix.patch` makes the combo PHY driver re-initialise when U-Boot
+  left it in PCIe mode. `modules/usb3-overlay.dts` switches the GMA340 mux (PB6 low) to the
+  USB3 lanes and disables PCIe. Enabled with `hardware.cubie-a5e.combophy = "usb3"`.
+
 ## Known issues
+
+- **USB 3.0 host mode may log `irq 35: nobody cared`** after a device is plugged in - known
+  issue in the upstream DWC3 series, functionality is unaffected
 
 - **PSCI SYSTEM_RESET not implemented** in vendor TF-A - `watchdog-reboot-helper` service crashes kernel on shutdown so hardware watchdog triggers reboot
 - **eMMC boot not tested**

@@ -15,6 +15,8 @@ jobs:
             image: cubie-a5e-vendor
           - name: cubie-a5e-sd-mainline-1gb
             image: cubie-a5e-mainline-1gb
+          - name: cubie-a5e-sd-mainline-1gb-usb3
+            image: cubie-a5e-mainline-1gb-usb3
           - name: cubie-a5e-sd-mainline-2gb
             image: cubie-a5e-mainline-2gb
           - name: cubie-a5e-spi
@@ -25,14 +27,11 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@main
 
-      - name: Build disko image script
-        run: nix build '.#nixosConfigurations.${{ matrix.variant.name }}.config.system.build.diskoImagesScript' -L
-
-      - name: Generate disk image
-        run: ./result
+      - name: Build SD image
+        run: nix build '.#nixosConfigurations.${{ matrix.variant.name }}.config.system.build.sdImage' -L
 
       - name: Compress image
-        run: zstd -T0 main.raw -o ${{ matrix.variant.image }}.raw.zst
+        run: zstd -T0 result/sd-image/*.img -o ${{ matrix.variant.image }}.raw.zst
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
